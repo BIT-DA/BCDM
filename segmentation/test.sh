@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=1 python test_bcdm.py --saveres -cfg configs/deeplabv2_r101_tgt_self_distill.yaml resume /data1/TL/DA-Seg/FADA/results/bcdm_test/
