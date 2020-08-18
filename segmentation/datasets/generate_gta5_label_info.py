@@ -9,23 +9,23 @@ from multiprocessing import Pool
 
 parser = argparse.ArgumentParser(description="Generate label stat info")
 parser.add_argument("-d",
-        "--datadir",
-        default="",
-        help="path to load data",
-        type=str,
-    )
+                    "--datadir",
+                    default="",
+                    help="path to load data",
+                    type=str,
+                    )
 parser.add_argument("-n",
-        "--nprocs",
-        default=16,
-        help="Number of processes",
-        type=int,
-    )
+                    "--nprocs",
+                    default=16,
+                    help="Number of processes",
+                    type=int,
+                    )
 parser.add_argument("-o",
-        "--output_dir",
-        default="",
-        help="path to save label info",
-        type=str,
-    )
+                    "--output_dir",
+                    default="",
+                    help="path to save label info",
+                    type=str,
+                    )
 args = parser.parse_args()
 imgdir = os.path.join(args.datadir, 'images')
 labdir = os.path.join(args.datadir, 'labels')
@@ -35,12 +35,13 @@ savedir = args.output_dir
 
 ignore_label = 255
 id_to_trainid = {7: 0, 8: 1, 11: 2, 12: 3, 13: 4, 17: 5,
-                              19: 6, 20: 7, 21: 8, 22: 9, 23: 10, 24: 11, 25: 12,
-                              26: 13, 27: 14, 28: 15, 31: 16, 32: 17, 33: 18}
+                 19: 6, 20: 7, 21: 8, 22: 9, 23: 10, 24: 11, 25: 12,
+                 26: 13, 27: 14, 28: 15, 31: 16, 32: 17, 33: 18}
+
 
 def generate_label_info():
     label_to_file = [[] for _ in range(len(id_to_trainid.keys()))]
-    file_to_label = {e:[] for e in os.listdir(imgdir)}
+    file_to_label = {e: [] for e in os.listdir(imgdir)}
 
     for labfile in tqdm(labfiles):
         label = np.unique(np.array(Image.open(os.path.join(labdir, labfile)), dtype=np.float32))
@@ -49,8 +50,9 @@ def generate_label_info():
                 l = id_to_trainid[lab]
                 label_to_file[l].append(labfile)
                 file_to_label[labfile].append(l)
-    
+
     return label_to_file, file_to_label
+
 
 def _foo(i):
     label_to_file = [[] for _ in range(len(id_to_trainid.keys()))]
@@ -68,9 +70,9 @@ def _foo(i):
 
 def main():
     label_to_file = [[] for _ in range(len(id_to_trainid.keys()))]
-    file_to_label = {e:[] for e in os.listdir(imgdir)}
-    
-    if nprocs==1:
+    file_to_label = {e: [] for e in os.listdir(imgdir)}
+
+    if nprocs == 1:
         label_to_file, file_to_label = generate_label_info()
     else:
         with Pool(nprocs) as p:
@@ -84,8 +86,5 @@ def main():
         pickle.dump((label_to_file, file_to_label), f)
 
 
-
-
 if __name__ == "__main__":
     main()
-

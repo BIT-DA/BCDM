@@ -11,11 +11,12 @@ import torch.nn.functional as F
 
 from core.configs import cfg
 from core.datasets import build_dataset
-from core.models import build_model, build_feature_extractor, build_classifier
+from core.models import build_feature_extractor, build_classifier
 from core.solver import adjust_learning_rate
 from core.utils.misc import mkdir, AverageMeter, intersectionAndUnionGPU
 from core.utils.logger import setup_logger
 from core.utils.metric_logger import MetricLogger
+
 
 def strip_prefix_if_present(state_dict, prefix):
     from collections import OrderedDict
@@ -24,10 +25,11 @@ def strip_prefix_if_present(state_dict, prefix):
         return state_dict
     stripped_state_dict = OrderedDict()
     for key, value in state_dict.items():
-        if key.startswith(prefix+'layer5'):
+        if key.startswith(prefix + 'layer5'):
             continue
         stripped_state_dict[key.replace(prefix, "")] = value
     return stripped_state_dict
+
 
 def train(cfg, local_rank, distributed):
     logger = logging.getLogger("FADA.trainer")
@@ -36,11 +38,11 @@ def train(cfg, local_rank, distributed):
     feature_extractor = build_feature_extractor(cfg)
     device = torch.device(cfg.MODEL.DEVICE)
     feature_extractor.to(device)
-    
+
     classifier = build_classifier(cfg)
     classifier.to(device)
 
-    if local_rank==0:
+    if local_rank == 0:
         print(feature_extractor)
         print(classifier)
 
@@ -49,26 +51,28 @@ def train(cfg, local_rank, distributed):
     batch_size = cfg.SOLVER.BATCH_SIZE
     if distributed:
         pg1 = torch.distributed.new_group(range(torch.distributed.get_world_size()))
-        
+
         batch_size = int(cfg.SOLVER.BATCH_SIZE / torch.distributed.get_world_size())
         if not cfg.MODEL.FREEZE_BN:
             feature_extractor = torch.nn.SyncBatchNorm.convert_sync_batchnorm(feature_extractor)
         feature_extractor = torch.nn.parallel.DistributedDataParallel(
-            feature_extractor, device_ids=[local_rank], output_device=local_rank, 
+            feature_extractor, device_ids=[local_rank], output_device=local_rank,
             find_unused_parameters=True, process_group=pg1
         )
         pg2 = torch.distributed.new_group(range(torch.distributed.get_world_size()))
         classifier = torch.nn.parallel.DistributedDataParallel(
-            classifier, device_ids=[local_rank], output_device=local_rank, 
+            classifier, device_ids=[local_rank], output_device=local_rank,
             find_unused_parameters=True, process_group=pg2
         )
         torch.autograd.set_detect_anomaly(True)
         torch.distributed.barrier()
-    
-    optimizer_fea = torch.optim.SGD(feature_extractor.parameters(), lr=cfg.SOLVER.BASE_LR, momentum=cfg.SOLVER.MOMENTUM, weight_decay=cfg.SOLVER.WEIGHT_DECAY)
+
+    optimizer_fea = torch.optim.SGD(feature_extractor.parameters(), lr=cfg.SOLVER.BASE_LR, momentum=cfg.SOLVER.MOMENTUM,
+                                    weight_decay=cfg.SOLVER.WEIGHT_DECAY)
     optimizer_fea.zero_grad()
-    
-    optimizer_cls = torch.optim.SGD(classifier.parameters(), lr=cfg.SOLVER.BASE_LR*10, momentum=cfg.SOLVER.MOMENTUM, weight_decay=cfg.SOLVER.WEIGHT_DECAY)
+
+    optimizer_cls = torch.optim.SGD(classifier.parameters(), lr=cfg.SOLVER.BASE_LR * 10, momentum=cfg.SOLVER.MOMENTUM,
+                                    weight_decay=cfg.SOLVER.WEIGHT_DECAY)
     optimizer_cls.zero_grad()
 
     output_dir = cfg.OUTPUT_DIR
@@ -76,37 +80,39 @@ def train(cfg, local_rank, distributed):
     save_to_disk = local_rank == 0
 
     iteration = 0
-    
+
     if cfg.resume:
         logger.info("Loading checkpoint from {}".format(cfg.resume))
         checkpoint = torch.load(cfg.resume, map_location=torch.device('cpu'))
-        model_weights = checkpoint['feature_extractor'] if distributed else strip_prefix_if_present(checkpoint['feature_extractor'], 'module.')
+        model_weights = checkpoint['feature_extractor'] if distributed else strip_prefix_if_present(
+            checkpoint['feature_extractor'], 'module.')
         feature_extractor.load_state_dict(model_weights)
-        classifier_weights = checkpoint['classifier'] if distributed else strip_prefix_if_present(checkpoint['classifier'], 'module.')
+        classifier_weights = checkpoint['classifier'] if distributed else strip_prefix_if_present(
+            checkpoint['classifier'], 'module.')
         classifier.load_state_dict(classifier_weights)
         if "optimizer_fea" in checkpoint:
             logger.info("Loading optimizer_fea from {}".format(cfg.resume))
-            optimizer_fea.load(checkpoint['optimizer_fea'])   # change ``optimizer`` to ``optimizer_fea``
+            optimizer_fea.load(checkpoint['optimizer_fea'])  # change ``optimizer`` to ``optimizer_fea``
         if "optimizer_cls" in checkpoint:
             logger.info("Loading optimizer_cls from {}".format(cfg.resume))
             optimizer_cls.load(checkpoint['optimizer_cls'])  # change ``optimizer`` to ``optimizer_cls``
         if "iteration" in checkpoint:
             iteration = checkpoint['iteration']
-    
+
     src_train_data = build_dataset(cfg, mode='train', is_source=True)
 
     if distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(src_train_data)
     else:
         train_sampler = None
-    
+
     train_loader = torch.utils.data.DataLoader(
-        src_train_data, 
-        batch_size=batch_size, 
-        shuffle=(train_sampler is None), 
-        num_workers=4, 
-        pin_memory=True, 
-        sampler=train_sampler, 
+        src_train_data,
+        batch_size=batch_size,
+        shuffle=(train_sampler is None),
+        num_workers=4,
+        pin_memory=True,
+        sampler=train_sampler,
         drop_last=True
     )
 
@@ -122,27 +128,28 @@ def train(cfg, local_rank, distributed):
 
     for i, (src_input, src_label, _) in enumerate(train_loader):
         data_time = time.time() - end
-        current_lr = adjust_learning_rate(cfg.SOLVER.LR_METHOD, cfg.SOLVER.BASE_LR, iteration, max_iters, power=cfg.SOLVER.LR_POWER)
+        current_lr = adjust_learning_rate(cfg.SOLVER.LR_METHOD, cfg.SOLVER.BASE_LR, iteration, max_iters,
+                                          power=cfg.SOLVER.LR_POWER)
         for index in range(len(optimizer_fea.param_groups)):
             optimizer_fea.param_groups[index]['lr'] = current_lr
         for index in range(len(optimizer_cls.param_groups)):
-            optimizer_cls.param_groups[index]['lr'] = current_lr*10
+            optimizer_cls.param_groups[index]['lr'] = current_lr * 10
 
         optimizer_fea.zero_grad()
         optimizer_cls.zero_grad()
         src_input = src_input.cuda(non_blocking=True)
         src_label = src_label.cuda(non_blocking=True).long()
-        
+
         size = src_label.shape[-2:]
         pred = classifier(feature_extractor(src_input), size)
-        
+
         loss = criterion(pred, src_label)
         loss.backward()
 
         optimizer_fea.step()
         optimizer_cls.step()
         meters.update(loss_seg=loss.item())
-        iteration+=1
+        iteration += 1
 
         batch_time = time.time() - end
         end = time.time()
@@ -167,16 +174,18 @@ def train(cfg, local_rank, distributed):
                     memory=torch.cuda.max_memory_allocated() / 1024.0 / 1024.0,
                 )
             )
-    
+
         if (iteration % cfg.SOLVER.CHECKPOINT_PERIOD == 0 or iteration == cfg.SOLVER.STOP_ITER) and save_to_disk:
             filename = os.path.join(output_dir, "model_iter{:06d}.pth".format(iteration))
-            torch.save({'iteration': iteration, 'feature_extractor': feature_extractor.state_dict(), 'classifier':classifier.state_dict(), 'optimizer_fea': optimizer_fea.state_dict(), 'optimizer_cls': optimizer_cls.state_dict()}, filename)
-        
+            torch.save({'iteration': iteration, 'feature_extractor': feature_extractor.state_dict(),
+                        'classifier': classifier.state_dict(), 'optimizer_fea': optimizer_fea.state_dict(),
+                        'optimizer_cls': optimizer_cls.state_dict()}, filename)
+
         if iteration == max_iters:
             break
         if iteration == cfg.SOLVER.STOP_ITER:
             break
-    
+
     total_training_time = time.time() - start_training_time
     total_time_str = str(datetime.timedelta(seconds=total_training_time))
     logger.info(
@@ -187,11 +196,12 @@ def train(cfg, local_rank, distributed):
 
     return feature_extractor, classifier
 
+
 def run_test(cfg, model, local_rank, distributed):
     logger = logging.getLogger("FADA.tester")
-    if local_rank==0:
+    if local_rank == 0:
         logger.info('>>>>>>>>>>>>>>>> Start Testing >>>>>>>>>>>>>>>>')
-    
+
     batch_time = AverageMeter()
     data_time = AverageMeter()
     loss_meter = AverageMeter()
@@ -200,7 +210,7 @@ def run_test(cfg, model, local_rank, distributed):
     target_meter = AverageMeter()
 
     feature_extractor, classifier = model
-    
+
     if distributed:
         feature_extractor, classifier = feature_extractor.module, classifier.module
     torch.cuda.empty_cache()
@@ -214,7 +224,8 @@ def run_test(cfg, model, local_rank, distributed):
         test_sampler = torch.utils.data.distributed.DistributedSampler(test_data)
     else:
         test_sampler = None
-    test_loader = torch.utils.data.DataLoader(test_data, batch_size=cfg.TEST.BATCH_SIZE, shuffle=False, num_workers=4, pin_memory=True, sampler=test_sampler)
+    test_loader = torch.utils.data.DataLoader(test_data, batch_size=cfg.TEST.BATCH_SIZE, shuffle=False, num_workers=4,
+                                              pin_memory=True, sampler=test_sampler)
     feature_extractor.eval()
     classifier.eval()
     end = time.time()
@@ -226,24 +237,26 @@ def run_test(cfg, model, local_rank, distributed):
             size = y.shape[-2:]
             pred = classifier(feature_extractor(x))
             pred = F.interpolate(pred, size=size, mode='bilinear', align_corners=True)
-            
+
             output = pred.max(1)[1]
-            intersection, union, target = intersectionAndUnionGPU(output, y, cfg.MODEL.NUM_CLASSES, cfg.INPUT.IGNORE_LABEL)
+            intersection, union, target = intersectionAndUnionGPU(output, y, cfg.MODEL.NUM_CLASSES,
+                                                                  cfg.INPUT.IGNORE_LABEL)
             if distributed:
-                torch.distributed.all_reduce(intersection), torch.distributed.all_reduce(union), torch.distributed.all_reduce(target)
+                torch.distributed.all_reduce(intersection), torch.distributed.all_reduce(
+                    union), torch.distributed.all_reduce(target)
             intersection, union, target = intersection.cpu().numpy(), union.cpu().numpy(), target.cpu().numpy()
             intersection_meter.update(intersection), union_meter.update(union), target_meter.update(target)
 
             accuracy = sum(intersection_meter.val) / (sum(target_meter.val) + 1e-10)
             batch_time.update(time.time() - end)
             end = time.time()
-    
+
     iou_class = intersection_meter.sum / (union_meter.sum + 1e-10)
     accuracy_class = intersection_meter.sum / (target_meter.sum + 1e-10)
     mIoU = np.mean(iou_class)
     mAcc = np.mean(accuracy_class)
     allAcc = sum(intersection_meter.sum) / (sum(target_meter.sum) + 1e-10)
-    if local_rank==0:
+    if local_rank == 0:
         logger.info('Val result: mIoU/mAcc/allAcc {:.4f}/{:.4f}/{:.4f}.'.format(mIoU, mAcc, allAcc))
         for i in range(cfg.MODEL.NUM_CLASSES):
             logger.info('Class_{} Result: iou/accuracy {:.4f}/{:.4f}.'.format(i, iou_class[i], accuracy_class[i]))
@@ -252,12 +265,12 @@ def run_test(cfg, model, local_rank, distributed):
 def main():
     parser = argparse.ArgumentParser(description="PyTorch Semantic Segmentation Training")
     parser.add_argument("-cfg",
-        "--config-file",
-        default="",
-        metavar="FILE",
-        help="path to config file",
-        type=str,
-    )
+                        "--config-file",
+                        default="",
+                        metavar="FILE",
+                        help="path to config file",
+                        type=str,
+                        )
     parser.add_argument("--local_rank", type=int, default=0)
     parser.add_argument(
         "--skip-test",

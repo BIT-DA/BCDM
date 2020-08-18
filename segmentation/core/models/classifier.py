@@ -3,6 +3,7 @@ from torch import nn
 import torch.nn.functional as F
 from torchvision.models._utils import IntermediateLayerGetter
 
+
 class ASPP_Classifier_V2(nn.Module):
     def __init__(self, in_channels, dilation_series, padding_series, num_classes):
         super(ASPP_Classifier_V2, self).__init__()

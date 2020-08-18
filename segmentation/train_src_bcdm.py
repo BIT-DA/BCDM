@@ -11,11 +11,12 @@ import torch.nn.functional as F
 
 from core.configs import cfg
 from core.datasets import build_dataset
-from core.models import build_model, build_feature_extractor, build_classifier
+from core.models import build_feature_extractor, build_classifier
 from core.solver import adjust_learning_rate
 from core.utils.misc import mkdir, AverageMeter, intersectionAndUnionGPU
 from core.utils.logger import setup_logger
 from core.utils.metric_logger import MetricLogger
+
 
 def strip_prefix_if_present(state_dict, prefix):
     from collections import OrderedDict
@@ -28,6 +29,7 @@ def strip_prefix_if_present(state_dict, prefix):
             continue
         stripped_state_dict[key.replace(prefix, "")] = value
     return stripped_state_dict
+
 
 def train(cfg, local_rank, distributed, cos_weight):
     logger = logging.getLogger("FADA.trainer")
@@ -219,6 +221,7 @@ def train(cfg, local_rank, distributed, cos_weight):
     )
 
     return feature_extractor, classifier
+
 
 def run_test(cfg, model, local_rank, distributed):
     logger = logging.getLogger("FADA.tester")
